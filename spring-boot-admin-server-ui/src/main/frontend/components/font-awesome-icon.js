@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2018 the original author or authors.
+ * Copyright 2014-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ import {faGithub} from '@fortawesome/free-brands-svg-icons/faGithub';
 import {faGitter} from '@fortawesome/free-brands-svg-icons/faGitter';
 import {faStackOverflow} from '@fortawesome/free-brands-svg-icons/faStackOverflow';
 import {faTimesCircle as farTimesCircle} from '@fortawesome/free-regular-svg-icons/faTimesCircle';
+import {faAngleDoubleRight} from '@fortawesome/free-solid-svg-icons/faAngleDoubleRight';
 import {faBan} from '@fortawesome/free-solid-svg-icons/faBan';
 import {faBell} from '@fortawesome/free-solid-svg-icons/faBell';
 import {faBellSlash} from '@fortawesome/free-solid-svg-icons/faBellSlash';
@@ -27,15 +28,21 @@ import {faCheck} from '@fortawesome/free-solid-svg-icons/faCheck';
 import {faDownload} from '@fortawesome/free-solid-svg-icons/faDownload';
 import {faExclamation} from '@fortawesome/free-solid-svg-icons/faExclamation';
 import {faExclamationTriangle} from '@fortawesome/free-solid-svg-icons/faExclamationTriangle';
+import {faFilter} from '@fortawesome/free-solid-svg-icons/faFilter';
+import {faHeartbeat} from '@fortawesome/free-solid-svg-icons/faHeartbeat';
+import {faHome} from '@fortawesome/free-solid-svg-icons/faHome';
+import {faMapMarkerAlt} from '@fortawesome/free-solid-svg-icons/faMapMarkerAlt';
 import {faMinusCircle} from '@fortawesome/free-solid-svg-icons/faMinusCircle';
 import {faPencilAlt} from '@fortawesome/free-solid-svg-icons/faPencilAlt';
 import {faQuestionCircle} from '@fortawesome/free-solid-svg-icons/faQuestionCircle';
+import {faSearch} from '@fortawesome/free-solid-svg-icons/faSearch';
 import {faSignOutAlt} from '@fortawesome/free-solid-svg-icons/faSignOutAlt';
 import {faStepBackward} from '@fortawesome/free-solid-svg-icons/faStepBackward';
 import {faStepForward} from '@fortawesome/free-solid-svg-icons/faStepForward';
 import {faTimesCircle} from '@fortawesome/free-solid-svg-icons/faTimesCircle';
 import {faTrash} from '@fortawesome/free-solid-svg-icons/faTrash';
 import {faUserCircle} from '@fortawesome/free-solid-svg-icons/faUserCircle';
+import {faWrench} from '@fortawesome/free-solid-svg-icons/faWrench';
 import {FontAwesomeIcon} from '@fortawesome/vue-fontawesome';
 
 library.add(
@@ -57,6 +64,13 @@ library.add(
   faBell,
   faBellSlash,
   faUserCircle,
+  faHeartbeat,
+  faHome,
+  faWrench,
+  faAngleDoubleRight,
+  faSearch,
+  faMapMarkerAlt,
+  faFilter,
 //regular,
   farTimesCircle,
 //brands

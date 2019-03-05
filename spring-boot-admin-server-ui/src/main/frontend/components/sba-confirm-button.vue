@@ -16,13 +16,15 @@
 
 <template>
   <button @click="click" class="confirm-button" :class="{ 'is-warning' : confirm }" v-on-clickaway="abort">
-    <slot name="confirm" v-if="confirm">Confirm</slot>
-    <slot v-else/>
+    <slot name="confirm" v-if="confirm">
+      Confirm
+    </slot>
+    <slot v-else />
   </button>
 </template>
 
 <script>
-  import {directive as onClickaway} from 'vue-clickaway';
+  import {directive as onClickaway} from 'vue-clickaway2';
 
   export default {
     directives: {onClickaway},
@@ -40,6 +42,7 @@
         } else {
           const width = this.$el.getBoundingClientRect().width;
           this.$el.style.width = `${width}px`;
+          event.stopPropagation();
         }
         this.confirm = !this.confirm;
       }

@@ -25,6 +25,7 @@ import de.codecentric.boot.admin.server.web.AdminController;
 
 import java.time.Instant;
 import java.util.Collection;
+import javax.annotation.Nullable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.MimeTypeUtils;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -44,7 +45,7 @@ import static org.springframework.util.StringUtils.hasText;
 @AdminController
 @ResponseBody
 public class NotificationFilterController {
-    private FilteringNotifier filteringNotifier;
+    private final FilteringNotifier filteringNotifier;
 
     public NotificationFilterController(FilteringNotifier filteringNotifier) {
         this.filteringNotifier = filteringNotifier;
@@ -62,12 +63,12 @@ public class NotificationFilterController {
             filteringNotifier.addFilter(filter);
             return ResponseEntity.ok(filter);
         } else {
-            return ResponseEntity.badRequest().body("Either 'id' or 'name' must be set");
+            return ResponseEntity.badRequest().body("Either 'instanceId' or 'applicationName' must be set");
         }
     }
 
     @DeleteMapping(path = "/notifications/filters/{id}")
-    public ResponseEntity<?> deleteFilter(@PathVariable("id") String id) {
+    public ResponseEntity<Void> deleteFilter(@PathVariable("id") String id) {
         NotificationFilter deleted = filteringNotifier.removeFilter(id);
         if (deleted != null) {
             return ResponseEntity.ok().build();
@@ -76,7 +77,7 @@ public class NotificationFilterController {
         }
     }
 
-    private NotificationFilter createFilter(InstanceId id, String name, Long ttl) {
+    private NotificationFilter createFilter(@Nullable InstanceId id, String name, @Nullable Long ttl) {
         Instant expiry = ttl != null && ttl >= 0 ? Instant.now().plusMillis(ttl) : null;
         if (id != null) {
             return new InstanceIdNotificationFilter(id, expiry);

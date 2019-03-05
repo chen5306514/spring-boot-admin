@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  ~ Copyright 2014-2018 the original author or authors.
+  ~ Copyright 2014-2019 the original author or authors.
   ~
   ~ Licensed under the Apache License, Version 2.0 (the "License");
   ~ you may not use this file except in compliance with the License.
@@ -70,11 +70,13 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- removed due to NPE in AbstractMessageConverterMethodProcessor#formatValue should be fixed with 2.1.0.M4
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-devtools</artifactId>
             <optional>true</optional>
         </dependency>
+        -->
     </dependencies>
     <build>
         <finalName>${project.artifactId}</finalName>
@@ -91,7 +93,7 @@
                     </execution>
                 </executions>
                 <configuration>
-                    <mainClass>de.codecentric.boot.admin.SpringBootAdminApplication</mainClass>
+                    <mainClass>de.codecentric.boot.admin.SpringBootAdminServletApplication</mainClass>
                     <addResources>false</addResources>
                 </configuration>
             </plugin>

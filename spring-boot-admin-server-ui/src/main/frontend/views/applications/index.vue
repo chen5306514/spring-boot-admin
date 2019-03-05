@@ -1,5 +1,5 @@
 <!--
-  - Copyright 2014-2018 the original author or authors.
+  - Copyright 2014-2019 the original author or authors.
   -
   - Licensed under the Apache License, Version 2.0 (the "License");
   - you may not use this file except in compliance with the License.
@@ -17,54 +17,92 @@
 <template>
   <section class="section">
     <div class="container">
+      <p v-if="!applicationsInitialized" class="is-muted is-loading">
+        Loading applications...
+      </p>
       <div v-if="error" class="message is-warning">
         <div class="message-body">
           <strong>
-            <font-awesome-icon class="has-text-warning" icon="exclamation-triangle"/>
+            <font-awesome-icon class="has-text-warning" icon="exclamation-triangle" />
             Server connection failed.
           </strong>
-          <p v-text="error.message"/>
+          <p v-text="error.message" />
         </div>
       </div>
-      <div class="level applications-stats">
-        <div class="level-item has-text-centered">
-          <div>
-            <p class="heading">Applications</p>
-            <p class="title" v-text="applicationsCount">1</p>
+      <template v-if="applicationsInitialized">
+        <applications-stats :applications="applications" />
+
+        <div class="field">
+          <p class="control is-expanded has-icons-left">
+            <input
+              class="input"
+              type="search"
+              :value="filter"
+              @input="handleFilterInput"
+            >
+            <span class="icon is-small is-left">
+              <font-awesome-icon icon="filter" />
+            </span>
+          </p>
+        </div>
+        <div
+          class="application-group"
+          v-for="group in statusGroups"
+          :key="group.status"
+        >
+          <p class="heading" v-text="group.status" />
+          <div class="applications-list">
+            <applications-list-item v-for="application in group.applications"
+                                    :key="application.name"
+                                    :id="application.name"
+                                    :application="application"
+                                    :is-expanded="selected === application.name || Boolean(filter)"
+                                    :has-notification-filters-support="hasNotificationFiltersSupport"
+                                    :notification-filters="notificationFilters"
+                                    @click.stop="select(application.name)"
+                                    v-on-clickaway="(event) => deselect(event, application.name)"
+                                    @unregister="unregister"
+                                    @toggle-notification-filter-settings="toggleNotificationFilterSettings"
+            />
           </div>
         </div>
-        <div class="level-item has-text-centered">
-          <div>
-            <p class="heading">Instances</p>
-            <p class="title" v-text="instancesCount">1</p>
-          </div>
-        </div>
-        <div class="level-item has-text-centered">
-          <div v-if="downCount === 0">
-            <p class="heading">Status</p>
-            <p class="title has-text-success">all up</p>
-          </div>
-          <div v-else>
-            <p class="heading">instances down</p>
-            <p class="title has-text-danger" v-text="downCount"/>
-          </div>
-        </div>
-      </div>
-      <div class="application-group" v-for="group in statusGroups" :key="group.status">
-        <p class="heading" v-text="group.status"/>
-        <applications-list :applications="group.applications" :selected="selected"/>
-      </div>
-      <div v-if="statusGroups.length === 0">
-        <p class="is-muted">No applications registered.</p>
-      </div>
+        <p v-if="applications.length === 0" class="is-muted">
+          No applications registered.
+        </p>
+        <notification-filter-settings v-if="showNotificationFilterSettingsObject"
+                                      v-popper="`nf-settings-${showNotificationFilterSettingsObject.id || showNotificationFilterSettingsObject.name}`"
+                                      :notification-filters="notificationFilters"
+                                      :object="showNotificationFilterSettingsObject"
+                                      @filter-added="handleNotificationFilterChange"
+                                      @filter-deleted="handleNotificationFilterChange"
+        />
+      </template>
     </div>
   </section>
 </template>
 
 <script>
-  import * as _ from 'lodash';
-  import applicationsList from './applications-list';
-  import label from './label';
+  import Popper from '@/directives/popper';
+  import subscribing from '@/mixins/subscribing';
+  import NotificationFilter from '@/services/notification-filter';
+  import {anyValueMatches} from '@/utils/collections';
+  import {concatMap, merge, Subject, timer} from '@/utils/rxjs';
+  import groupBy from 'lodash/groupBy';
+  import sortBy from 'lodash/sortBy';
+  import transform from 'lodash/transform';
+  import {directive as onClickaway} from 'vue-clickaway2';
+  import ApplicationsListItem from './applications-list-item';
+  import applicationsStats from './applications-stats';
+  import handle from './handle';
+  import NotificationFilterSettings from './notification-filter-settings';
+
+  const instanceMatchesFilter = (term, instance) => {
+    const predicate = value => String(value).toLowerCase().includes(term);
+    return anyValueMatches(instance.registration, predicate) ||
+      anyValueMatches(instance.buildVersion, predicate) ||
+      anyValueMatches(instance.id, predicate) ||
+      anyValueMatches(instance.tags, predicate);
+  };
 
   export default {
     props: {
@@ -73,35 +111,135 @@
         default: () => [],
       },
       error: {
-        type: null,
+        type: Error,
         default: null
       },
       selected: {
         type: String,
         default: null
+      },
+      applicationsInitialized: {
+        type: Boolean,
+        default: false
       }
     },
+    directives: {onClickaway, Popper},
+    mixins: [subscribing],
     components: {
-      applicationsList,
+      applicationsStats,
+      ApplicationsListItem,
+      NotificationFilterSettings
+    },
+    data: () => ({
+      filter: null,
+      hasNotificationFiltersSupport: false,
+      showNotificationFilterSettingsObject: null,
+      notificationFilters: []
+    }),
+    watch: {
+      '$route.query': {
+        immediate: true,
+        handler() {
+          this.filter = this.$route.query.q;
+        }
+      },
+      'selected': {
+        immediate: true,
+        handler(newVal) {
+          this.scrollIntoView(newVal);
+        }
+      }
+    },
+    mounted() {
+      this.hasNotificationFiltersSupport = NotificationFilter.isSupported();
+    },
+    methods: {
+      handleFilterInput(event) {
+        this.$router.replace({
+          name: 'applications',
+          query: event.target.value ? {q: event.target.value} : null
+        });
+      },
+      select(name) {
+        this.$router.replace({name: 'applications', params: {selected: name}});
+      },
+      deselect(event, expectedSelected) {
+        this.toggleNotificationFilterSettings(null);
+        if (event && event.target instanceof HTMLAnchorElement) {
+          return;
+        }
+        if (this.selected === expectedSelected || !expectedSelected) {
+          this.$router.replace({name: 'applications'});
+        }
+      },
+      async scrollIntoView(id, behavior) {
+        if (id) {
+          await this.$nextTick();
+          const el = document.getElementById(id);
+          if (el) {
+            const top = el.getBoundingClientRect().top + window.scrollY - 100;
+            window.scroll({top, left: window.scrollX, behavior: behavior || 'smooth'});
+          }
+        }
+      },
+      async unregister(item) {
+        this.toggleNotificationFilterSettings(null);
+        try {
+          item.unregister();
+        } catch (e) {
+          this.errors.push(e);
+        }
+      },
+      createSubscription() {
+        const vm = this;
+        vm.notificationFilterSubject = new Subject();
+        return timer(0, 60000)
+          .pipe(
+            merge(vm.notificationFilterSubject),
+            concatMap(this.fetchNotificationFilters),
+          )
+          .subscribe({
+            next: data => {
+              vm.notificationFilters = data;
+            },
+            error: error => {
+              console.warn('Fetching notification filters failed:', error);
+              vm.errors.push(error);
+            }
+          });
+      },
+      async fetchNotificationFilters() {
+        if (this.hasNotificationFiltersSupport) {
+          const response = await NotificationFilter.getFilters();
+          return response.data;
+        }
+        return [];
+      },
+      handleNotificationFilterChange(event) {
+        this.toggleNotificationFilterSettings(null);
+        this.notificationFilterSubject.next(event);
+      },
+      toggleNotificationFilterSettings(obj) {
+        this.showNotificationFilterSettingsObject = obj ? obj : null;
+      },
+      filterInstances(applications) {
+        if (!this.filter) {
+          return applications;
+        }
+
+        return applications
+          .map(a => a.filterInstances(i => instanceMatchesFilter(this.filter.toLowerCase(), i)))
+          .filter(a => a.instances.length > 0);
+      }
     },
     computed: {
       statusGroups() {
-        const byStatus = _.groupBy(this.applications, application => application.status);
-        const list = _.transform(byStatus, (result, value, key) => {
-          result.push({status: key, applications: _.sortBy(value, [application => application.name])})
+        const filteredApplications = this.filterInstances(this.applications);
+        const applicationsByStatus = groupBy(filteredApplications, application => application.status);
+        const list = transform(applicationsByStatus, (result, applications, status) => {
+          result.push({status: status, applications: sortBy(applications, [application => application.name])})
         }, []);
-        return _.sortBy(list, [item => item.status]);
-      },
-      applicationsCount() {
-        return this.applications.length;
-      },
-      instancesCount() {
-        return this.applications.reduce((current, next) => current + next.instances.length, 0);
-      },
-      downCount() {
-        return this.applications.reduce((current, next) => {
-          return current + (next.instances.filter(instance => instance.statusInfo.status !== 'UP').length);
-        }, 0);
+        return sortBy(list, [item => item.status]);
       }
     },
     install({viewRegistry}) {
@@ -109,7 +247,8 @@
         path: '/applications/:selected?',
         props: true,
         name: 'applications',
-        label,
+        label: 'Applications',
+        handle,
         order: 0,
         component: this
       });
@@ -117,13 +256,3 @@
     }
   };
 </script>
-
-
-<style lang="scss">
-  @import "~@/assets/css/utilities";
-
-  .application-group {
-    margin: $gap 0;
-  }
-
-</style>

@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2018 the original author or authors.
+ * Copyright 2014-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ import de.codecentric.boot.admin.server.domain.values.InstanceId;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
 import reactor.retry.Retry;
 
@@ -31,18 +32,19 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.logging.Level;
+import javax.annotation.Nullable;
 import org.reactivestreams.Publisher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class StatusUpdateTrigger extends ResubscribingEventHandler<InstanceEvent> {
+public class StatusUpdateTrigger extends AbstractEventHandler<InstanceEvent> {
     private static final Logger log = LoggerFactory.getLogger(StatusUpdateTrigger.class);
     private final StatusUpdater statusUpdater;
-    private Map<InstanceId, Instant> lastQueried = new HashMap<>();
+    private final Map<InstanceId, Instant> lastQueried = new HashMap<>();
     private Duration updateInterval = Duration.ofSeconds(10);
     private Duration statusLifetime = Duration.ofSeconds(10);
+    @Nullable
     private Disposable intervalSubscription;
-
 
     public StatusUpdateTrigger(StatusUpdater statusUpdater, Publisher<InstanceEvent> publisher) {
         super(publisher, InstanceEvent.class);
@@ -52,25 +54,29 @@ public class StatusUpdateTrigger extends ResubscribingEventHandler<InstanceEvent
     @Override
     public void start() {
         super.start();
+        Scheduler scheduler = Schedulers.newSingle("status-monitor");
         intervalSubscription = Flux.interval(updateInterval)
-                                   .doOnSubscribe(
-                                       subscription -> log.debug("Scheduled status update every {}", updateInterval))
+                                   .doOnSubscribe(s -> log.debug("Scheduled status update every {}", updateInterval))
                                    .log(log.getName(), Level.FINEST)
-                                   .subscribeOn(Schedulers.newSingle("status-monitor"))
-                                   .flatMap((i) -> this.updateStatusForAllInstances())
+                                   .subscribeOn(scheduler)
+                                   .concatMap(i -> this.updateStatusForAllInstances())
                                    .retryWhen(Retry.any()
-                                                   .retryMax(Integer.MAX_VALUE)
-                                                   .doOnRetry(ctx -> log.error("Resubscribing after uncaught error",
-                                                       ctx.exception())))
+                                                   .retryMax(Long.MAX_VALUE)
+                                                   .doOnRetry(ctx -> log.warn("Unexpected error when updating statuses",
+                                                       ctx.exception()
+                                                   )))
+                                   .doFinally(s -> scheduler.dispose())
                                    .subscribe();
     }
 
     @Override
-    protected Publisher<?> handle(Flux<InstanceEvent> publisher) {
-        return publisher.subscribeOn(Schedulers.newSingle("status-updater"))
+    protected Publisher<Void> handle(Flux<InstanceEvent> publisher) {
+        Scheduler scheduler = Schedulers.newSingle("status-updater");
+        return publisher.subscribeOn(scheduler)
                         .filter(event -> event instanceof InstanceRegisteredEvent ||
                                          event instanceof InstanceRegistrationUpdatedEvent)
-                        .flatMap(event -> updateStatus(event.getInstance()));
+                        .flatMap(event -> updateStatus(event.getInstance()))
+                        .doFinally(s -> scheduler.dispose());
     }
 
     @Override
@@ -92,7 +98,7 @@ public class StatusUpdateTrigger extends ResubscribingEventHandler<InstanceEvent
     }
 
     protected Mono<Void> updateStatus(InstanceId instanceId) {
-        return statusUpdater.updateStatus(instanceId).doFinally((s) -> lastQueried.put(instanceId, Instant.now()));
+        return statusUpdater.updateStatus(instanceId).doFinally(s -> lastQueried.put(instanceId, Instant.now()));
     }
 
     public void setUpdateInterval(Duration updateInterval) {

@@ -28,7 +28,7 @@
         </div>
       </div>
       <a class="button is-primary" :href="`instances/${instance.id}/actuator/heapdump`" target="_blank">
-        <font-awesome-icon icon="download"/>&nbsp;Download Heap Dump
+        <font-awesome-icon icon="download" />&nbsp;Download Heap Dump
       </a>
     </div>
   </section>
@@ -50,8 +50,8 @@
         parent: 'instances',
         path: 'heapdump',
         component: this,
-        props: true,
         label: 'Heap Dump',
+        group: 'JVM',
         order: 800,
         isEnabled: ({instance}) => instance.hasEndpoint('heapdump')
       });

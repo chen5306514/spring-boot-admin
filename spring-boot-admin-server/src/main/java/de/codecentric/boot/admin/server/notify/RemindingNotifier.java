@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2018 the original author or authors.
+ * Copyright 2014-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@ import de.codecentric.boot.admin.server.domain.values.InstanceId;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
 import reactor.retry.Retry;
 
@@ -33,6 +34,7 @@ import java.time.Instant;
 import java.util.Arrays;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
+import javax.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.util.Assert;
@@ -49,6 +51,7 @@ public class RemindingNotifier extends AbstractEventNotifier {
     private Duration checkReminderInverval = Duration.ofSeconds(10);
     private Duration reminderPeriod = Duration.ofMinutes(10);
     private String[] reminderStatuses = {"DOWN", "OFFLINE"};
+    @Nullable
     private Disposable subscription;
 
     public RemindingNotifier(Notifier delegate, InstanceRepository repository) {
@@ -68,17 +71,18 @@ public class RemindingNotifier extends AbstractEventNotifier {
         }));
     }
 
-
     public void start() {
-        this.subscription = Flux.interval(this.checkReminderInverval, Schedulers.newSingle("reminders"))
+        Scheduler scheduler = Schedulers.newSingle("reminders");
+        this.subscription = Flux.interval(this.checkReminderInverval, scheduler)
                                 .log(log.getName(), Level.FINEST)
-                                .doOnSubscribe(subscription -> log.debug("Started reminders"))
+                                .doOnSubscribe(s -> log.debug("Started reminders"))
                                 .flatMap(i -> this.sendReminders())
                                 .retryWhen(Retry.any()
-                                                .retryMax(Integer.MAX_VALUE)
-                                                .doOnRetry(
-                                                    ctx -> log.error("Resubscribing for reminders after uncaught error",
-                                                        ctx.exception())))
+                                                .retryMax(Long.MAX_VALUE)
+                                                .doOnRetry(ctx -> log.warn("Unexpected error when sending reminders",
+                                                    ctx.exception()
+                                                )))
+                                .doFinally(s -> scheduler.dispose())
                                 .subscribe();
     }
 
@@ -102,7 +106,8 @@ public class RemindingNotifier extends AbstractEventNotifier {
     protected boolean shouldStartReminder(InstanceEvent event) {
         if (event instanceof InstanceStatusChangedEvent) {
             return Arrays.binarySearch(reminderStatuses,
-                ((InstanceStatusChangedEvent) event).getStatusInfo().getStatus()) >= 0;
+                ((InstanceStatusChangedEvent) event).getStatusInfo().getStatus()
+            ) >= 0;
         }
         return false;
     }
@@ -113,7 +118,8 @@ public class RemindingNotifier extends AbstractEventNotifier {
         }
         if (event instanceof InstanceStatusChangedEvent) {
             return Arrays.binarySearch(reminderStatuses,
-                ((InstanceStatusChangedEvent) event).getStatusInfo().getStatus()) < 0;
+                ((InstanceStatusChangedEvent) event).getStatusInfo().getStatus()
+            ) < 0;
         }
         return false;
     }

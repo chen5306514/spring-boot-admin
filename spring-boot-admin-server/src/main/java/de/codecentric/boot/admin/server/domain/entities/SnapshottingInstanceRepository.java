@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2018 the original author or authors.
+ * Copyright 2014-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,14 +19,16 @@ package de.codecentric.boot.admin.server.domain.entities;
 import de.codecentric.boot.admin.server.domain.events.InstanceEvent;
 import de.codecentric.boot.admin.server.domain.values.InstanceId;
 import de.codecentric.boot.admin.server.eventstore.InstanceEventStore;
+import de.codecentric.boot.admin.server.eventstore.OptimisticLockingException;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.retry.Retry;
 
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.Function;
+import javax.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -38,37 +40,40 @@ import org.slf4j.LoggerFactory;
 public class SnapshottingInstanceRepository extends EventsourcingInstanceRepository {
     private static final Logger log = LoggerFactory.getLogger(SnapshottingInstanceRepository.class);
     private final ConcurrentMap<InstanceId, Instance> snapshots = new ConcurrentHashMap<>();
+    private final Set<InstanceId> oudatedSnapshots = ConcurrentHashMap.newKeySet();
+    private final InstanceEventStore eventStore;
+    @Nullable
     private Disposable subscription;
-    private final Retry<Object> retryOnAny = Retry.any()
-                                                  .retryMax(Integer.MAX_VALUE)
-                                                  .doOnRetry(ctx -> log.error("Resubscribing after uncaught error",
-                                                      ctx.exception()));
 
     public SnapshottingInstanceRepository(InstanceEventStore eventStore) {
         super(eventStore);
+        this.eventStore = eventStore;
     }
 
     @Override
     public Flux<Instance> findAll() {
-        return Mono.fromSupplier(snapshots::values).flatMapIterable(Function.identity());
+        return Mono.fromSupplier(this.snapshots::values).flatMapIterable(Function.identity());
     }
 
     @Override
     public Mono<Instance> find(InstanceId id) {
-        return Mono.defer(() -> Mono.justOrEmpty(snapshots.get(id)));
+        return Mono.defer(() -> {
+            if (!this.oudatedSnapshots.contains(id)) {
+                return Mono.justOrEmpty(this.snapshots.get(id));
+            } else {
+                return rehydrateSnapshot(id).doOnSuccess(v -> this.oudatedSnapshots.remove(v.getId()));
+            }
+        });
     }
 
     @Override
-    public Flux<Instance> findByName(String name) {
-        return findAll().filter(a -> a.isRegistered() && name.equals(a.getRegistration().getName()));
+    public Mono<Instance> save(Instance instance) {
+        return super.save(instance)
+                    .doOnError(OptimisticLockingException.class, e -> this.oudatedSnapshots.add(instance.getId()));
     }
 
     public void start() {
-        this.subscription = getEventStore().findAll()
-                                           .concatWith(getEventStore())
-                                           .doOnNext(this::updateSnapshot)
-                                           .retryWhen(retryOnAny)
-                                           .subscribe();
+        this.subscription = this.eventStore.findAll().concatWith(this.eventStore).subscribe(this::updateSnapshot);
     }
 
     public void stop() {
@@ -77,10 +82,25 @@ public class SnapshottingInstanceRepository extends EventsourcingInstanceReposit
         }
     }
 
-    protected void updateSnapshot(InstanceEvent event) {
-        snapshots.compute(event.getInstance(), (key, old) -> {
-            Instance instance = old != null ? old : Instance.create(key);
-            return instance.apply(event);
+    protected Mono<Instance> rehydrateSnapshot(InstanceId id) {
+        Instance outdatedSnapshot = this.snapshots.get(id);
+        return super.find(id).map(instance -> {
+            if (this.snapshots.replace(id, outdatedSnapshot, instance)) {
+                return instance;
+            } else {
+                return this.snapshots.get(id);
+            }
         });
+    }
+
+    protected void updateSnapshot(InstanceEvent event) {
+        try {
+            this.snapshots.compute(event.getInstance(), (key, old) -> {
+                Instance instance = old != null ? old : Instance.create(key);
+                return instance.apply(event);
+            });
+        } catch (Exception ex) {
+            log.warn("Error while updating the snapshot with event {}", event, ex);
+        }
     }
 }
